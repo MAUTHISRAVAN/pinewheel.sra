@@ -1,0 +1,72 @@
+pip install langchain langchain-community langgraph OpenAI
+import os
+import subprocess
+import logging
+import langgraph
+from langchain.schema import AgentAction, AgentFinish
+from langchain.chat_models import ChatOpenAI
+from langchain.agents import AgentExecutor
+from langchain.tools import Tool
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Define security tools
+TOOLS = {
+    "nmap": "nmap -sV {target}",
+    "gobuster": "gobuster dir -u {target} -w /usr/share/wordlists/dirb/common.txt",
+    "ffuf": "ffuf -u {target}/FUZZ -w /usr/share/wordlists/dirb/common.txt"
+}
+
+# Define a function to enforce scope
+ALLOWED_SCOPE = ["example.com", "192.168.1.0/24"]
+
+def is_in_scope(target):
+    return any(scope in target for scope in ALLOWED_SCOPE)
+
+# Function to execute security scans
+def run_scan(tool, target):
+    if not is_in_scope(target):
+        logging.warning(f"Target {target} is out of scope!")
+        return "Out of scope"
+    
+    command = TOOLS.get(tool, "").format(target=target)
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        return result.stdout
+    except Exception as e:
+        logging.error(f"Error executing {tool} on {target}: {e}")
+        return "Execution failed"
+
+# Define LangGraph Workflow
+def task_executor(input_text):
+    tasks = []
+    if "scan" in input_text:
+        tasks.append("nmap")
+    if "directories" in input_text:
+        tasks.append("gobuster")
+    if "fuzz" in input_text:
+        tasks.append("ffuf")
+    return tasks
+
+class CyberSecurityAgent:
+    def __init__(self):
+        self.task_list = []
+    
+    def add_task(self, tool, target):
+        self.task_list.append((tool, target))
+    
+    def execute_tasks(self):
+        results = {}
+        for tool, target in self.task_list:
+            logging.info(f"Running {tool} on {target}")
+            results[tool] = run_scan(tool, target)
+        return results
+
+# Example execution
+if __name__ == "__main__":
+    agent = CyberSecurityAgent()
+    agent.add_task("nmap", "example.com")
+    agent.add_task("gobuster", "example.com")
+    scan_results = agent.execute_tasks()
+    print(scan_results)
